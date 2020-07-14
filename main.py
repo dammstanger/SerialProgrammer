@@ -4,7 +4,7 @@ import time
 import threading
 import serial
 import serial.tools.list_ports
-from fmu_uploader import firmware, uploader, debug_test
+from fmu_uploader import firmware, uploader
 from PyQt5 import QtWidgets, QtGui
 from PyQt5.QtWidgets import QMessageBox, QFileDialog
 from PyQt5.QtCore import QTimer, pyqtSignal
@@ -79,10 +79,9 @@ class Pyqt5_Serial(QtWidgets.QWidget, Ui_Form):
 
         self.ui_serialchoose.clear()
         for port in self.port_list:
-
             self.Com_Dict["%s" % port[0]] = "%s" % port[1]
             self.ui_serialchoose.addItem(port[0])
-            print(self.ui_serialchoose.currentText())
+
         print(self.Com_Dict)
         if len(self.Com_Dict) == 0:
             self.ui_serialdisp.setText(" 无串口")
@@ -269,18 +268,11 @@ class Pyqt5_Serial(QtWidgets.QWidget, Ui_Form):
         fw = firmware(self.firmware_bin)
         txtCon = "加载固件到飞控 %d,%x, 大小: %d bytes, 等待飞控 bootloader...\n" % (fw.property('board_id'), fw.property('board_revision'), fw.property('image_size'))
         self.s2__receive_text.append(txtCon)
-        # self.s2__receive_text.repaint()
         print(txtCon)
         txtCon = "如果超过3s没有反应,请重新插拔USB接口."
         self.s2__receive_text.append(txtCon)
         self.s2__receive_text.repaint()
         print(txtCon)
-
-        try:
-            debug_test()
-            return
-        except Exception:
-            return
 
         # Spin waiting for a device to show up
         try:
@@ -315,6 +307,7 @@ class Pyqt5_Serial(QtWidgets.QWidget, Ui_Form):
 
                     found_bootloader = False
                     while (True):
+                        up.debug_test()
                         up.open()
 
                         # port is open, try talking to it
@@ -324,9 +317,9 @@ class Pyqt5_Serial(QtWidgets.QWidget, Ui_Form):
                             found_bootloader = True
                             txtCon = "在串口:%s找到目标板，ID:%d, 版本:%x\nbootloader版本: %x"% (
                             port[0], up.board_type, up.board_rev, up.bl_rev)
-                            self.show_infoes_signal.emit(txtCon)
-                            #self.s2__receive_text.append(txtCon)
-                            # self.s2__receive_text.repaint()
+                            #self.show_infoes_signal.emit(txtCon)
+                            self.s2__receive_text.append(txtCon)
+                            self.s2__receive_text.repaint()
                             print(txtCon)
                             break
 
@@ -336,13 +329,13 @@ class Pyqt5_Serial(QtWidgets.QWidget, Ui_Form):
                                 break
 
                             # wait for the reboot, without we might run into Serial I/O Error 5
-                            time.sleep(0.25)
+                            time.sleep(0.5)
 
                             # always close the port
                             up.close()
 
                             # wait for the close, without we might run into Serial I/O Error 6
-                            time.sleep(0.3)
+                            time.sleep(0.5)
 
                     if not found_bootloader:
                         # Go to the next port

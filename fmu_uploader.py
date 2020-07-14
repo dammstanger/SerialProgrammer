@@ -212,6 +212,10 @@ class uploader(object):
         self.baudrate_flightstack = baudrate_flightstack
         self.baudrate_flightstack_idx = -1
 
+    def debug_test(self):
+        print("this is in fmu uploader.")
+
+
     def close(self):
         if self.port is not None:
             self.port.close()
@@ -617,10 +621,5 @@ class uploader(object):
                 pass
 
         return True
-
-
-def debug_test(debug):
-    debug.emit("debug from fmu")
-    return
 
 # vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4
