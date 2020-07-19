@@ -211,9 +211,12 @@ class uploader(object):
             self.baudrate_bootloader_flash = self.baudrate_bootloader
         self.baudrate_flightstack = baudrate_flightstack
         self.baudrate_flightstack_idx = -1
+        self.output_text_info = ''
 
     def debug_test(self):
-        print("this is in fmu uploader.")
+        txtCon = "this is in fmu uploader."
+        self.debug.emit(str(txtCon))
+        print(txtCon)
 
 
     def close(self):
@@ -349,8 +352,10 @@ class uploader(object):
 
         percent = (float(progress) / float(maxVal)) * 100.0
 
-        sys.stdout.write("\r%s: [%-20s] %.1f%%" % (label, '=' * int(percent / 5.0), percent))
+        self.output_text_info = "\r%s: [%-20s] %.1f%%" % (label, '=' * int(percent / 5.0), percent)
+        sys.stdout.write(self.output_text_info)
         sys.stdout.flush()
+        self.debug.emit(str(self.output_text_info))
 
     # send the CHIP_ERASE command and wait for the bootloader to become ready
     def __erase(self, label):
@@ -538,25 +543,49 @@ class uploader(object):
             self.otp_coa = self.otp[32:160]
             # show user:
             try:
-                print("type: " + self.otp_id.decode('Latin-1'))
-                print("idtype: " + binascii.b2a_qp(self.otp_idtype).decode('Latin-1'))
-                print("vid: " + binascii.hexlify(self.otp_vid).decode('Latin-1'))
-                print("pid: " + binascii.hexlify(self.otp_pid).decode('Latin-1'))
-                print("coa: " + binascii.b2a_base64(self.otp_coa).decode('Latin-1'))
-                print("sn: ", end='')
+                txtCon = "type: %s\n" % (self.otp_id.decode('Latin-1'))
+                txtCon = txtCon + "idtype: " + binascii.b2a_qp(self.otp_idtype).decode('Latin-1') + "\n"
+                txtCon = txtCon + "vid: " + binascii.hexlify(self.otp_vid).decode('Latin-1') + "\n"
+                txtCon = txtCon + "pid: " + binascii.hexlify(self.otp_pid).decode('Latin-1') + "\n"
+                txtCon = txtCon + "coa: " + binascii.b2a_base64(self.otp_coa).decode('Latin-1') + "\n"
+                self.debug.emit(str(txtCon))
+
+                self.output = "sn: "
                 for byte in range(0, 12, 4):
                     x = self.__getSN(byte)
                     x = x[::-1]  # reverse the bytes
                     self.sn = self.sn + x
-                    print(binascii.hexlify(x).decode('Latin-1'), end='')  # show user
-                print('')
-                print("chip: %08x" % self.__getCHIP())
+                    self.output = self.output + binascii.hexlify(x).decode('Latin-1')
+                self.debug.emit(self.output)
+                txtCon = "chip: %08x" % self.__getCHIP()
+                self.debug.emit(str(txtCon))
                 if (self.bl_rev >= 5):
                     des = self.__getCHIPDes()
                     if (len(des) == 2):
-                        print("family: %s" % des[0])
-                        print("revision: %s" % des[1])
-                        print("flash %d" % self.fw_maxsize)
+                        txtCon = "family: %s" % des[0]
+                        txtCon = txtCon + "revision: %s" % des[1]
+                        txtCon = txtCon + "flash %d" % self.fw_maxsize
+                        self.debug.emit(str(txtCon))
+
+                # print("type: " + self.otp_id.decode('Latin-1'))
+                # print("idtype: " + binascii.b2a_qp(self.otp_idtype).decode('Latin-1'))
+                # print("vid: " + binascii.hexlify(self.otp_vid).decode('Latin-1'))
+                # print("pid: " + binascii.hexlify(self.otp_pid).decode('Latin-1'))
+                # print("coa: " + binascii.b2a_base64(self.otp_coa).decode('Latin-1'))
+                # print("sn: ", end='')
+                # for byte in range(0, 12, 4):
+                #     x = self.__getSN(byte)
+                #     x = x[::-1]  # reverse the bytes
+                #     self.sn = self.sn + x
+                #     print(binascii.hexlify(x).decode('Latin-1'), end='')  # show user
+                # print('')
+                # print("chip: %08x" % self.__getCHIP())
+                # if (self.bl_rev >= 5):
+                #     des = self.__getCHIPDes()
+                #     if (len(des) == 2):
+                #         print("family: %s" % des[0])
+                #         print("revision: %s" % des[1])
+                #         print("flash %d" % self.fw_maxsize)
             except Exception:
                 # ignore bad character encodings
                 pass
@@ -568,8 +597,9 @@ class uploader(object):
             self.__sync()
 
         self.__erase("Erase  ")
+        self.debug.emit("")
         self.__program("Program", fw)
-
+        self.debug.emit("")
         if self.bl_rev == 2:
             self.__verify_v2("Verify ", fw)
         else:
@@ -578,7 +608,8 @@ class uploader(object):
         # if boot_delay is not None:
         #     self.__set_boot_delay(boot_delay)
 
-        print("\nRebooting.\n")
+        self.output_text_info = "Rebooting.\n"
+        self.debug.emit(str(self.output_text_info))
         self.__reboot()
         self.port.close()
 

@@ -7,24 +7,214 @@ import serial.tools.list_ports
 from fmu_uploader import firmware, uploader
 from PyQt5 import QtWidgets, QtGui
 from PyQt5.QtWidgets import QMessageBox, QFileDialog
-from PyQt5.QtCore import QTimer, pyqtSignal
+from PyQt5.QtCore import QRect, QTimer, pyqtSignal, QThread, QDateTime, QEventLoop
 from ui import Ui_Form
 from sys import platform as _platform
 
+
+class BackQthread(QThread):
+    # 自定义信号为str参数类型
+    update_date = pyqtSignal(str)
+
+    def run(self):
+        while True:
+            # 获得当前系统时间
+            data = QDateTime.currentDateTime()
+            # 设置时间显示格式
+            curTime = data.toString('yyyy-MM-dd hh:mm:ss dddd')
+            # 发射信号
+            self.update_date.emit(str(curTime))
+            # 睡眠一秒
+            time.sleep(1)
+
+
+class Backend_uploadthread(QThread):
+    # 自定义信号为str参数类型
+    upload_show = pyqtSignal(str)
+
+    def __init__(self, p_list, port, button):
+        super().__init__()
+        print("upload thread init")
+        self.p_list = p_list
+        self.port = port
+        self.target_port = []  # the ports find after push an upload button
+        self.button = button
+
+    def get_firmware(self, firmware):
+        self.bin_file = firmware
+
+    def run(self):
+        print("upload thread running")
+        self.fmu_upload()
+        #
+        self.button.setEnabled(True)
+
+    # fmu串口自动检测
+    def fmu_port_auto_check(self):
+        while True:
+            try:
+                list_tmp = list(serial.tools.list_ports.comports())
+                # it seems we just disconnect one port update the port list
+                if len(list_tmp) < len(self.p_list):
+                    self.p_list = list_tmp
+                    time.sleep(0.1)
+                    continue
+
+                #
+                self.target_port = [val for val in list_tmp if val not in self.p_list]
+                if self.target_port:
+                    for port in self.target_port:
+                        txtCon = "find new port:" + port[0]
+                        print(txtCon)
+                        self.upload_show.emit(str(txtCon))
+                    break
+                else:
+                    time.sleep(0.05)
+                    continue
+            except Exception:
+                text = "error occur when list serial ports"
+                print(text)
+                self.upload_show.emit(str(text))
+
+    def fmu_upload(self):
+        # if self.firmware_bin is None:
+        #     QMessageBox.warning(self, "警告对话框", "请先选择有效的固件！", QMessageBox.Ok)
+        #     return
+
+        # warn people about ModemManager which interferes badly with Pixhawk
+        if os.path.exists("/usr/sbin/ModemManager"):
+            print(
+                "==========================================================================================================")
+            print(
+                "WARNING: You should uninstall ModemManager as it conflicts with any non-modem serial device (like Pixhawk)")
+            print(
+                "==========================================================================================================")
+
+        # Load the firmware file
+        fw = firmware(self.bin_file)
+        txtCon = "加载固件到飞控 %d,%x, 大小: %d bytes, 等待飞控 bootloader...\n" % (
+            fw.property('board_id'), fw.property('board_revision'), fw.property('image_size'))
+        self.upload_show.emit(str(txtCon))
+        print(txtCon)
+        txtCon = "如果超过3s没有反应,请重新插拔USB接口."
+        self.upload_show.emit(str(txtCon))
+        print(txtCon)
+
+        # Spin waiting for a device to show up
+        try:
+            # search a port and open it if it is a fmu-bootloader
+            self.fmu_port_auto_check()
+
+            while True:
+                for port in self.target_port:
+
+                    print("Trying %s" % port[0])
+
+                    # create an uploader attached to the port
+                    try:
+                        if "linux" in _platform:
+                            # Linux, don't open Mac OS and Win ports
+                            if "COM" not in port and "tty.usb" not in port:
+                                up = uploader(self.port, port[0], self.upload_show, 115200)
+                        elif "darwin" in _platform:
+                            # OS X, don't open Windows and Linux ports
+                            if "COM" not in port and "ACM" not in port:
+                                up = uploader(self.port, port[0], self.upload_show, 115200)
+                        elif "win" in _platform:
+                            # Windows, don't open POSIX ports
+                            if "/" not in port:
+                                up = uploader(self.port, port[0], self.upload_show, 115200)
+                    except Exception:
+                        # open failed, rate-limit our attempts
+                        time.sleep(0.05)
+
+                        # and loop to the next port
+                        continue
+
+                    found_bootloader = False
+                    while (True):
+                        up.debug_test()
+                        up.open()
+
+                        # port is open, try talking to it
+                        try:
+                            # identify the bootloader
+                            up.identify()
+                            found_bootloader = True
+                            txtCon = "在串口:%s找到目标板，ID:%d, 版本:%x\nbootloader版本: %x" % (
+                                port[0], up.board_type, up.board_rev, up.bl_rev)
+                            self.upload_show.emit(str(txtCon))
+                            print(txtCon)
+                            break
+
+                        except Exception:
+
+                            if not up.send_reboot():
+                                break
+
+                            # wait for the reboot, without we might run into Serial I/O Error 5
+                            time.sleep(0.5)
+
+                            # always close the port
+                            up.close()
+
+                            # wait for the close, without we might run into Serial I/O Error 6
+                            time.sleep(0.5)
+
+                    if not found_bootloader:
+                        # Go to the next port
+                        continue
+
+                    try:
+                        # ok, we have a bootloader, try flashing it
+                        up.upload(fw, force=False, boot_delay=False)
+
+                    except RuntimeError as ex:
+                        # print the error
+                        print("\nERROR: %s" % ex.args)
+
+                    except IOError:
+                        up.close()
+                        continue
+
+                    finally:
+                        # always close the port
+                        up.close()
+
+                # Delay retries to < 20 Hz to prevent spin-lock from hogging the CPU
+                time.sleep(0.05)
+                return
+
+        # CTRL+C aborts the upload/spin-lock by interrupt mechanics
+        except Exception:
+            print("\n Upload aborted by user.")
+
+
 class Pyqt5_Serial(QtWidgets.QWidget, Ui_Form):
-    show_infoes_signal = pyqtSignal(str)
 
     def __init__(self):
         super(Pyqt5_Serial, self).__init__()
         self.setupUi(self)
+        self.ser = serial.Serial(timeout=0.5)
+
+        self.port_list = []  # the ports find on startup
+        self.firmware_bin = "E:\Python\src\SerialProgrammer\arducopter_st3.apj"
+
+        # 实例化对象
+        self.backend = BackQthread()
+        # 信号连接到界面显示槽函数
+        self.backend.update_date.connect(self.show_time)
+        # 多线程开始
+        self.backend.start()
+
+        # 实例化对象
+        self.backend_uplaod = Backend_uploadthread(self.port_list, self.ser, self.upload_button)
+        # 信号连接到界面显示槽函数
+        self.backend_uplaod.upload_show.connect(self.show_infoes)
 
         self.init()
-        self.setWindowTitle("SW_Programer")
-        self.ser = serial.Serial(timeout=0.5)
-        self.port_list = []                     #the ports find on startup
-        self.target_port = []                   #the ports find after push an upload button
         self.port_check()
-        self.firmware_bin = "E:\Python\src\SerialProgrammer\arducopter_st3.apj"
+        self.setWindowTitle("SW_Programer")
 
         # 接收数据和发送数据数目置零
         self.data_num_received = 0
@@ -33,6 +223,10 @@ class Pyqt5_Serial(QtWidgets.QWidget, Ui_Form):
         self.lineEdit_2.setText(str(self.data_num_sended))
 
     def init(self):
+
+        # 选项卡切换
+        self.tabWidget.currentChanged.connect(self.adjust_revarea)
+
         # 串口检测按钮
         self.s1__box_1.clicked.connect(self.port_check)
 
@@ -58,18 +252,36 @@ class Pyqt5_Serial(QtWidgets.QWidget, Ui_Form):
         # 清除接收窗口
         self.s2__clear_button.clicked.connect(self.receive_data_clear)
 
-        #选择固件
+        # 选择固件
         self.open_file.clicked.connect(self.openFile)
 
-        #上传固件
-        self.upload_button.clicked.connect(self.fmu_upload)
-
-        self.show_infoes_signal.connect(self.show_infoes)
+        # 上传固件
+        self.upload_button.clicked.connect(self.upload_fw)
 
     def show_infoes(self, info):
         print(info)
-        self.s2__receive_text.append(info + "\n")
-        self.s2__receive_text.repaint()
+        if info.startswith('\r'):
+            lastLine = self.s2__receive_text.textCursor()
+            lastLine.select(QtGui.QTextCursor.LineUnderCursor)
+            lastLine.removeSelectedText()
+            self.s2__receive_text.moveCursor(QtGui.QTextCursor.StartOfLine, QtGui.QTextCursor.MoveAnchor)
+            infoTmp = info.strip("\r")
+            self.s2__receive_text.insertPlainText(infoTmp)
+        elif "" == info:
+            self.s2__receive_text.append(info)
+            self.s2__receive_text.repaint()
+        else:
+            self.s2__receive_text.append(info + "\n")
+            self.s2__receive_text.repaint()
+
+    def show_time(self, str_time):
+        self.label_time.setText(str_time)
+
+    def adjust_revarea(self):
+        if self.tabWidget.tabText(self.tabWidget.currentIndex()) == "串口助手":
+            self.s2__receive_text.setGeometry(QRect(197, 50, 391, 282))
+        else:
+            self.s2__receive_text.setGeometry(QRect(27, 113, 561, 219))
 
     # 串口检测
     def port_check(self):
@@ -215,155 +427,24 @@ class Pyqt5_Serial(QtWidgets.QWidget, Ui_Form):
         self.s2__receive_text.setText("")
 
     def openFile(self):
+        sys.stdout.write("stdout: open file")
         fname = QFileDialog.getOpenFileName(
-            #self, "打开文件", '','*.txt',None,QFileDialog.DontUseNativeDialog)   记住上次打开的路径，被实现
+            # self, "打开文件", '','*.txt',None,QFileDialog.DontUseNativeDialog)   记住上次打开的路径，被实现
             self, "打开文件", './', '*.apj')
         if fname[0]:
-            with open(fname[0],'rb') as f:
+            with open(fname[0], 'rb') as f:
                 print(fname[0])
                 txtCon = "".join(fname[0])
                 self.s3__send_text_2.setText(txtCon)
                 self.firmware_bin = txtCon
 
-
-    # fmu串口自动检测
-    def fmu_port_auto_check(self):
-        while(True):
-            try:
-                list_tmp = list(serial.tools.list_ports.comports())
-                #it seems we just disconnect one port update the port list
-                if len(list_tmp) < len(self.port_list):
-                    self.port_list = list_tmp
-                    time.sleep(0.1)
-                    continue
-
-                #
-                self.target_port = [val for val in list_tmp if val not in self.port_list]
-                if self.target_port:
-                    for port in self.target_port:
-                        print("find new port:", port[0])
-                    break
-                else:
-                    time.sleep(0.05)
-                    continue
-            except Exception:
-                print("error occur when list serial ports")
-
-
-    def fmu_upload(self):
-        # if self.firmware_bin is None:
-        #     QMessageBox.warning(self, "警告对话框", "请先选择有效的固件！", QMessageBox.Ok)
-        #     return
-
-        # warn people about ModemManager which interferes badly with Pixhawk
-        if os.path.exists("/usr/sbin/ModemManager"):
-            print(
-                "==========================================================================================================")
-            print(
-                "WARNING: You should uninstall ModemManager as it conflicts with any non-modem serial device (like Pixhawk)")
-            print(
-                "==========================================================================================================")
-
-        # Load the firmware file
-        fw = firmware(self.firmware_bin)
-        txtCon = "加载固件到飞控 %d,%x, 大小: %d bytes, 等待飞控 bootloader...\n" % (fw.property('board_id'), fw.property('board_revision'), fw.property('image_size'))
-        self.s2__receive_text.append(txtCon)
-        print(txtCon)
-        txtCon = "如果超过3s没有反应,请重新插拔USB接口."
-        self.s2__receive_text.append(txtCon)
-        self.s2__receive_text.repaint()
-        print(txtCon)
-
-        # Spin waiting for a device to show up
-        try:
-            # search a port and open it if it is a fmu-bootloader
-            self.fmu_port_auto_check()
-
-            while True:
-                for port in self.target_port:
-
-                    print("Trying %s" % port[0])
-
-                    # create an uploader attached to the port
-                    try:
-                        if "linux" in _platform:
-                            # Linux, don't open Mac OS and Win ports
-                            if "COM" not in port and "tty.usb" not in port:
-                                up = uploader(self.ser, port[0], self.show_infoes_signal, 115200)
-                        elif "darwin" in _platform:
-                            # OS X, don't open Windows and Linux ports
-                            if "COM" not in port and "ACM" not in port:
-                                up = uploader(self.ser, port[0], self.show_infoes_signal, 115200)
-                        elif "win" in _platform:
-                            # Windows, don't open POSIX ports
-                            if "/" not in port:
-                                up = uploader(self.ser, port[0], self.show_infoes_signal, 115200)
-                    except Exception:
-                        # open failed, rate-limit our attempts
-                        time.sleep(0.05)
-
-                        # and loop to the next port
-                        continue
-
-                    found_bootloader = False
-                    while (True):
-                        up.debug_test()
-                        up.open()
-
-                        # port is open, try talking to it
-                        try:
-                            # identify the bootloader
-                            up.identify()
-                            found_bootloader = True
-                            txtCon = "在串口:%s找到目标板，ID:%d, 版本:%x\nbootloader版本: %x"% (
-                            port[0], up.board_type, up.board_rev, up.bl_rev)
-                            #self.show_infoes_signal.emit(txtCon)
-                            self.s2__receive_text.append(txtCon)
-                            self.s2__receive_text.repaint()
-                            print(txtCon)
-                            break
-
-                        except Exception:
-
-                            if not up.send_reboot():
-                                break
-
-                            # wait for the reboot, without we might run into Serial I/O Error 5
-                            time.sleep(0.5)
-
-                            # always close the port
-                            up.close()
-
-                            # wait for the close, without we might run into Serial I/O Error 6
-                            time.sleep(0.5)
-
-                    if not found_bootloader:
-                        # Go to the next port
-                        continue
-
-                    try:
-                        # ok, we have a bootloader, try flashing it
-                        up.upload(fw, force=False, boot_delay=False)
-
-                    except RuntimeError as ex:
-                        # print the error
-                        print("\nERROR: %s" % ex.args)
-
-                    except IOError:
-                        up.close()
-                        continue
-
-                    finally:
-                        # always close the port
-                        up.close()
-
-                # Delay retries to < 20 Hz to prevent spin-lock from hogging the CPU
-                time.sleep(0.05)
-                return
-
-        # CTRL+C aborts the upload/spin-lock by interrupt mechanics
-        except Exception:
-            print("\n Upload aborted by user.")
+    def upload_fw(self):
+        #
+        self.backend_uplaod.get_firmware(self.firmware_bin)
+        # 多线程开始
+        self.backend_uplaod.start()
+        #
+        self.upload_button.setEnabled(False)
 
 
 if __name__ == '__main__':
