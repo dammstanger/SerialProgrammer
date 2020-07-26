@@ -31,23 +31,26 @@ class BackQthread(QThread):
 class Backend_uploadthread(QThread):
     # 自定义信号为str参数类型
     upload_show = pyqtSignal(str)
+    upload_progress = pyqtSignal(int)
+    upload_exit = pyqtSignal()
 
-    def __init__(self, p_list, port, button):
+    def __init__(self, p_list, port):
         super().__init__()
         print("upload thread init")
         self.p_list = p_list
         self.port = port
         self.target_port = []  # the ports find after push an upload button
-        self.button = button
 
     def get_firmware(self, firmware):
         self.bin_file = firmware
 
     def run(self):
         print("upload thread running")
-        self.fmu_upload()
-        #
-        self.button.setEnabled(True)
+        try:
+            self.fmu_upload()
+        finally:
+            self.upload_exit.emit()
+
 
     # fmu串口自动检测
     def fmu_port_auto_check(self):
@@ -115,15 +118,15 @@ class Backend_uploadthread(QThread):
                         if "linux" in _platform:
                             # Linux, don't open Mac OS and Win ports
                             if "COM" not in port and "tty.usb" not in port:
-                                up = uploader(self.port, port[0], self.upload_show, 115200)
+                                up = uploader(self.port, port[0], self.upload_show, self.upload_progress, 115200)
                         elif "darwin" in _platform:
                             # OS X, don't open Windows and Linux ports
                             if "COM" not in port and "ACM" not in port:
-                                up = uploader(self.port, port[0], self.upload_show, 115200)
+                                up = uploader(self.port, port[0], self.upload_show, self.upload_progress, 115200)
                         elif "win" in _platform:
                             # Windows, don't open POSIX ports
                             if "/" not in port:
-                                up = uploader(self.port, port[0], self.upload_show, 115200)
+                                up = uploader(self.port, port[0], self.upload_show, self.upload_progress, 115200)
                     except Exception:
                         # open failed, rate-limit our attempts
                         time.sleep(0.05)
@@ -198,7 +201,7 @@ class Pyqt5_Serial(QtWidgets.QWidget, Ui_Form):
         self.ser = serial.Serial(timeout=0.5)
 
         self.port_list = []  # the ports find on startup
-        self.firmware_bin = "E:\Python\src\SerialProgrammer\arducopter_st3.apj"
+        self.firmware_bin = ""
 
         # 实例化对象
         self.backend = BackQthread()
@@ -208,9 +211,11 @@ class Pyqt5_Serial(QtWidgets.QWidget, Ui_Form):
         self.backend.start()
 
         # 实例化对象
-        self.backend_uplaod = Backend_uploadthread(self.port_list, self.ser, self.upload_button)
+        self.backend_uplaod = Backend_uploadthread(self.port_list, self.ser)
         # 信号连接到界面显示槽函数
         self.backend_uplaod.upload_show.connect(self.show_infoes)
+        self.backend_uplaod.upload_exit.connect(self.upload_exit_cb)
+        self.backend_uplaod.upload_progress.connect(self.upload_progress_cb)
 
         self.init()
         self.port_check()
@@ -283,6 +288,13 @@ class Pyqt5_Serial(QtWidgets.QWidget, Ui_Form):
         else:
             self.s2__receive_text.setGeometry(QRect(27, 113, 561, 219))
 
+    def upload_exit_cb(self):
+        self.upload_button.setEnabled(True)
+        # enable tab "串口助手" for exit from firmware upload backend
+        self.tabWidget.setTabEnabled(1, True)
+
+    def upload_progress_cb(self, pct):
+        self.progressBar_upload.setValue(pct)
     # 串口检测
     def port_check(self):
         # 检测所有存在的串口，将信息存储在字典中
@@ -428,9 +440,9 @@ class Pyqt5_Serial(QtWidgets.QWidget, Ui_Form):
 
     def openFile(self):
         sys.stdout.write("stdout: open file")
-        fname = QFileDialog.getOpenFileName(
-            # self, "打开文件", '','*.txt',None,QFileDialog.DontUseNativeDialog)   记住上次打开的路径，被实现
-            self, "打开文件", './', '*.apj')
+        dialog = QFileDialog(self)
+        fname = dialog.getOpenFileName(self, "打开文件", '', '*.apj')  # 虽然是静态函数，但先创建实例可以记住上次打开的路径
+
         if fname[0]:
             with open(fname[0], 'rb') as f:
                 print(fname[0])
@@ -445,6 +457,8 @@ class Pyqt5_Serial(QtWidgets.QWidget, Ui_Form):
         self.backend_uplaod.start()
         #
         self.upload_button.setEnabled(False)
+        # disable change tab to "串口助手"
+        self.tabWidget.setTabEnabled(1, False)
 
 
 if __name__ == '__main__':

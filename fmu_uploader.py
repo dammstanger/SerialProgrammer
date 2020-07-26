@@ -196,14 +196,16 @@ class uploader(object):
         b'\xfe\x21\x45\xff\x00\x4c\x00\x00\x40\x40\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf6\x00\x00\x00\x00\xcc\x37')
 
     # baudrate_flightstack 用于通过mavlink复位飞控的通信波特率
-    def __init__(self, serialinst, portname, debug_msg_sld, baudrate_bootloader=115200, baudrate_flightstack=[115200, 57600], baudrate_bootloader_flash=None):
+    def __init__(self, serialinst, portname, debug_msg_sld, upload_pct_sld, baudrate_bootloader=115200,
+                 baudrate_flightstack=[115200, 57600], baudrate_bootloader_flash=None):
         # open the port, keep the default timeout short so we can poll quickly
-        self.port = serialinst   #serial.Serial(portname, baudrate_bootloader, timeout=0.5)
+        self.port = serialinst  # serial.Serial(portname, baudrate_bootloader, timeout=0.5)
         self.port.port = portname
         self.port.baudrate = baudrate_bootloader
         self.otp = b''
         self.sn = b''
         self.debug = debug_msg_sld
+        self.upload_pct = upload_pct_sld
         self.baudrate_bootloader = baudrate_bootloader
         if baudrate_bootloader_flash is not None:
             self.baudrate_bootloader_flash = baudrate_bootloader_flash
@@ -217,7 +219,6 @@ class uploader(object):
         txtCon = "this is in fmu uploader."
         self.debug.emit(str(txtCon))
         print(txtCon)
-
 
     def close(self):
         if self.port is not None:
@@ -356,6 +357,15 @@ class uploader(object):
         sys.stdout.write(self.output_text_info)
         sys.stdout.flush()
         self.debug.emit(str(self.output_text_info))
+
+        if label == 'Program':
+            pct_total = percent * 0.9
+        elif label == 'Verify ':
+            pct_total = 90 + percent * 0.1
+        else:
+            pct_total = 0
+
+        self.upload_pct.emit(pct_total)
 
     # send the CHIP_ERASE command and wait for the bootloader to become ready
     def __erase(self, label):

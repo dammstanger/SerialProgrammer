@@ -126,7 +126,7 @@ p, li { white-space: pre-wrap; }
       </property>
      </widget>
     </widget>
-    <widget class="QProgressBar" name="progressBar">
+    <widget class="QProgressBar" name="progressBar_upload">
      <property name="geometry">
       <rect>
        <x>20</x>
@@ -142,7 +142,7 @@ p, li { white-space: pre-wrap; }
       <bool>false</bool>
      </property>
      <property name="value">
-      <number>24</number>
+      <number>0</number>
      </property>
      <property name="textVisible">
       <bool>true</bool>
@@ -176,7 +176,7 @@ p, li { white-space: pre-wrap; }
     </widget>
     <zorder>groupBox</zorder>
     <zorder>formGroupBox_2</zorder>
-    <zorder>progressBar</zorder>
+    <zorder>progressBar_upload</zorder>
     <zorder>upload_button</zorder>
    </widget>
    <widget class="QWidget" name="tab_2">
