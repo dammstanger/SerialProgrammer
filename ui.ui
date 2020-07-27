@@ -121,6 +121,9 @@ p, li { white-space: pre-wrap; }
         <height>25</height>
        </rect>
       </property>
+      <property name="toolTip">
+       <string>选择一个.apj格式的固件</string>
+      </property>
       <property name="text">
        <string>打开</string>
       </property>

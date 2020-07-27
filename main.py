@@ -1,13 +1,13 @@
 import os
 import sys
 import time
-import threading
 import serial
 import serial.tools.list_ports
 from fmu_uploader import firmware, uploader
 from PyQt5 import QtWidgets, QtGui
-from PyQt5.QtWidgets import QMessageBox, QFileDialog
-from PyQt5.QtCore import QRect, QTimer, pyqtSignal, QThread, QDateTime, QEventLoop
+from PyQt5.QtGui import QIcon, QFont
+from PyQt5.QtWidgets import QMessageBox, QFileDialog, QToolTip
+from PyQt5.QtCore import QRect, QTimer, pyqtSignal, QThread, QDateTime
 from ui import Ui_Form
 from sys import platform as _platform
 
@@ -219,7 +219,8 @@ class Pyqt5_Serial(QtWidgets.QWidget, Ui_Form):
 
         self.init()
         self.port_check()
-        self.setWindowTitle("SW_Programer")
+        self.setWindowTitle("SW_Programmer")
+        self.setWindowIcon(QIcon('SW_programmer.png'))
 
         # 接收数据和发送数据数目置零
         self.data_num_received = 0
@@ -228,6 +229,8 @@ class Pyqt5_Serial(QtWidgets.QWidget, Ui_Form):
         self.lineEdit_2.setText(str(self.data_num_sended))
 
     def init(self):
+        # 提示文本字体和大小
+        QToolTip.setFont(QFont('SansSerif', 10))
 
         # 选项卡切换
         self.tabWidget.currentChanged.connect(self.adjust_revarea)
@@ -262,6 +265,7 @@ class Pyqt5_Serial(QtWidgets.QWidget, Ui_Form):
 
         # 上传固件
         self.upload_button.clicked.connect(self.upload_fw)
+        self.upload_button.setToolTip('点击前请先选择固件')
 
     def show_infoes(self, info):
         print(info)

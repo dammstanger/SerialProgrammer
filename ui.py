@@ -204,6 +204,7 @@ class Ui_Form(object):
 "</style></head><body style=\" font-family:\'SimSun\'; font-size:9pt; font-weight:400; font-style:normal;\">\n"
 "<p style=\"-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><br /></p></body></html>"))
         self.s1__lb_7.setText(_translate("Form", "文件"))
+        self.open_file.setToolTip(_translate("Form", "选择一个.apj格式的固件"))
         self.open_file.setText(_translate("Form", "打开"))
         self.groupBox.setTitle(_translate("Form", "烧写状态"))
         self.upload_button.setText(_translate("Form", "上传固件"))
